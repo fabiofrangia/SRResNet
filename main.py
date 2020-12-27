@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 from torch.autograd import Variable
 import torch.utils.model_zoo as model_zoo
 import numpy as np
+from torchvision import transforms, utils
 
 dir_img = 'Data/input/'
 dir_mask = 'Data/output/'
@@ -20,11 +21,12 @@ parser.add_argument("--lr",             type=float, default=1e-4, help="Learning
 parser.add_argument("--start-epoch",    type=int,   default=1,    help="Manual epoch number")
 parser.add_argument("--nEpochs",        type=int,   default=500,  help="Number of epochs to train for")
 parser.add_argument("--gpus",           type=str,   default=0,    help="gpu ids (default: 0)")
-parser.add_argument("--cuda",     action="store_true",      help="Use cuda")
-parser.add_argument("--vgg_loss", action="store_true",      help="Use content loss?")
-parser.add_argument("--threads", type=int, default=0, help="Number of threads for data loader to use, Default: 1")
-parser.add_argument("--batchSize", type=int, default=1, help="training batch size")
-parser.add_argument("--step", type=int, default=200, help="Sets the learning rate to the initial LR decayed by momentum every n epochs, Default: n=500")
+parser.add_argument("--threads",        type=int,   default=0,    help="Number of threads for data loader to use, Default: 1")
+parser.add_argument("--batchSize",      type=int,   default=1,    help="training batch size")
+parser.add_argument("--step",           type=int,   default=200,  help="Sets the learning rate to the initial LR decayed by momentum every n epochs, Default: n=500")
+parser.add_argument("--cuda",           action="store_true",      help="Use cuda")
+parser.add_argument("--vgg_loss",       action="store_true",      help="Use content loss?")
+
 
 def main():
     
@@ -40,7 +42,11 @@ def main():
 
     print("===> Loading datasets")
 
-    dataset = BasicDataset(dir_img, dir_mask)
+    dataset = BasicDataset(dir_img, dir_mask,transform= transforms.Compose([
+                                                        transforms.ToTensor(),
+                                                        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                                                            std=[0.229, 0.224, 0.225])
+                                                                            ]))
     training_data_loader = DataLoader(dataset=dataset, num_workers=opt.threads, \
         batch_size=opt.batchSize, shuffle=True)
 
@@ -67,6 +73,11 @@ def main():
 
     print("===> Training")
     for epoch in range(opt.start_epoch, opt.nEpochs +1):
+        try:
+            os.makedirs('Output/{}'.format(epoch))
+        except Exception as e:
+            print(e)
+
         train(training_data_loader, optimizer, model, criterion, epoch, opt, netContent)
 
 def adjust_learning_rate(optimizer, epoch, opt):
@@ -91,6 +102,8 @@ def train(training_data_loader, optimizer, model, criterion, epoch, opt, netCont
         if opt.cuda:
             input = input.cuda()
             target = target.cuda()
+            model = model.cuda()
+            netContent = netContent.cuda()
 
         output = model(input)
         loss = criterion(output, target)
@@ -111,15 +124,15 @@ def train(training_data_loader, optimizer, model, criterion, epoch, opt, netCont
 
         optimizer.step()
 
-        if iteration%1 == 0:
+        if iteration%20 == 0:
             if opt.vgg_loss:
                 print("===> Epoch[{}]({}/{}): Loss: {:.5} Content_loss {:.5}".format(epoch, iteration, len(training_data_loader), loss.detach().cpu().numpy(), content_loss.detach().cpu().numpy()))
                 fig, (ax1, ax2, ax3) = plt.subplots(1, 3)
                 fig.suptitle('Horizontally stacked subplots')
-                ax1.imshow(np.array(input.detach().cpu()[0]).transpose((1,2,0)))
-                ax2.imshow(np.array(output.detach().cpu()[0]).transpose((1,2,0)))
-                ax3.imshow(np.array(target.detach().cpu()[0]).transpose((1,2,0)))
-                plt.show()
+                ax1.imshow(np.array(input.detach().cpu()[0]).transpose((1,2,0)).astype(float))
+                ax2.imshow(np.array(output.detach().cpu()[0]).transpose((1,2,0)).astype(float))
+                ax3.imshow(np.array(target.detach().cpu()[0]).transpose((1,2,0)).astype(float))
+                plt.savefig('Output/{}/{}.png'.format(epoch, iteration))
             else:
                 print("===> Epoch[{}]({}/{}): Loss: {:.5}".format(epoch, iteration, len(training_data_loader), loss.data[0]))
 
